@@ -1,0 +1,1 @@
+ALTER TABLE public.stock_units DROP CONSTRAINT IF EXISTS chk_minus_description_consistency;

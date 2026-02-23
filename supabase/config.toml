@@ -1,0 +1,49 @@
+project_id = "aycnkakcjauxvqlxcugr"
+
+[functions.manage-customer]
+verify_jwt = false
+
+[functions.create-admin-account]
+verify_jwt = false
+
+[functions.approve-admin]
+verify_jwt = false
+
+[functions.bootstrap-superadmin]
+verify_jwt = false
+
+[functions.get-recaptcha-sitekey]
+verify_jwt = false
+
+[functions.verify-recaptcha]
+verify_jwt = false
+
+[functions.custom-email]
+verify_jwt = false
+
+[functions.import-csv-stock]
+verify_jwt = false
+
+[functions.opname-notify]
+verify_jwt = false
+
+[functions.opname-reminder]
+verify_jwt = false
+
+[functions.tripay-callback]
+verify_jwt = false
+
+[functions.tripay-check-status]
+verify_jwt = false
+
+[functions.tripay-create-transaction]
+verify_jwt = false
+
+[functions.wilayah-proxy]
+verify_jwt = false
+
+[functions.rajaongkir-proxy]
+verify_jwt = false
+
+[functions.export-database]
+verify_jwt = false

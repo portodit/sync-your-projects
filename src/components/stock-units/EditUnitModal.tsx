@@ -1,0 +1,226 @@
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { Loader2, AlertCircle } from "lucide-react";
+import type { StockUnit, ConditionStatus, MinusSeverity } from "@/lib/stock-units";
+
+interface Branch { id: string; name: string; city: string | null }
+
+interface EditUnitModalProps {
+  unit: StockUnit | null;
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+export function EditUnitModal({ unit, open, onClose, onSuccess }: EditUnitModalProps) {
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [branches, setBranches] = useState<Branch[]>([]);
+
+  const [imei, setImei] = useState("");
+  const [imeiError, setImeiError] = useState<string | null>(null);
+  const [imeiChecking, setImeiChecking] = useState(false);
+  const [branchId, setBranchId] = useState<string>("");
+  const [sellingPrice, setSellingPrice] = useState("");
+  const [costPrice, setCostPrice] = useState("");
+  const [conditionStatus, setConditionStatus] = useState<ConditionStatus>("no_minus");
+  const [minusSeverity, setMinusSeverity] = useState<MinusSeverity | "">("");
+  const [minusDescription, setMinusDescription] = useState("");
+  const [supplier, setSupplier] = useState("");
+  const [batchCode, setBatchCode] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    supabase.from("branches").select("id, name, city").eq("is_active", true).order("name")
+      .then(({ data }) => setBranches((data as Branch[]) ?? []));
+  }, []);
+
+  useEffect(() => {
+    if (unit && open) {
+      setImei(unit.imei);
+      setImeiError(null);
+      setBranchId((unit as any).branch_id ?? "");
+      setSellingPrice(unit.selling_price?.toString() ?? "");
+      setCostPrice(unit.cost_price?.toString() ?? "");
+      setConditionStatus(unit.condition_status);
+      setMinusSeverity(unit.minus_severity ?? "");
+      setMinusDescription(unit.minus_description ?? "");
+      setSupplier(unit.supplier ?? "");
+      setBatchCode(unit.batch_code ?? "");
+      setNotes(unit.notes ?? "");
+    }
+  }, [unit, open]);
+
+  // IMEI uniqueness check (debounced) — skip if same as current
+  useEffect(() => {
+    if (!unit || !imei || imei.length < 14) { setImeiError(null); return; }
+    if (imei === unit.imei) { setImeiError(null); return; }
+    const t = setTimeout(async () => {
+      setImeiChecking(true);
+      const { data } = await supabase.from("stock_units").select("id").eq("imei", imei).neq("id", unit.id).maybeSingle();
+      setImeiChecking(false);
+      setImeiError(data ? "IMEI sudah digunakan oleh unit lain." : null);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [imei, unit]);
+
+  async function handleSave() {
+    if (!unit) return;
+    if (!imei.trim()) {
+      toast({ title: "IMEI wajib diisi", variant: "destructive" });
+      return;
+    }
+    if (imeiError) return;
+    setSaving(true);
+    const updateData: Record<string, unknown> = {
+      imei: imei.trim(),
+      branch_id: branchId || null,
+      selling_price: sellingPrice ? Number(sellingPrice) : null,
+      cost_price: costPrice ? Number(costPrice) : null,
+      condition_status: conditionStatus,
+      minus_severity: conditionStatus === "minus" ? (minusSeverity || null) : null,
+      minus_description: conditionStatus === "minus" ? (minusDescription.trim() || null) : null,
+      supplier: supplier.trim() || null,
+      batch_code: batchCode.trim() || null,
+      notes: notes.trim() || null,
+    };
+
+    const { error } = await supabase
+      .from("stock_units")
+      .update(updateData as never)
+      .eq("id", unit.id);
+
+    setSaving(false);
+    if (error) {
+      if (error.message.includes("idx_stock_units_imei_unique") || error.message.includes("duplicate")) {
+        setImeiError("IMEI sudah digunakan oleh unit lain.");
+      } else {
+        toast({ title: "Gagal menyimpan", description: error.message, variant: "destructive" });
+      }
+      return;
+    }
+    toast({ title: "Unit berhasil diperbarui" });
+    onSuccess();
+    onClose();
+  }
+
+  if (!unit) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Unit — {unit.master_products?.series} {unit.master_products?.storage_gb}GB</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Cabang */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Cabang</label>
+            <Select value={branchId || "none"} onValueChange={(v) => setBranchId(v === "none" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Pilih cabang..." /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— Tidak ditentukan</SelectItem>
+                {branches.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}{b.city ? ` (${b.city})` : ""}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">IMEI</label>
+            <div className="relative">
+              <Input value={imei} onChange={e => setImei(e.target.value)} placeholder="IMEI" className="pr-8" />
+              {imeiChecking && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+              )}
+            </div>
+            {imeiError && (
+              <p className="flex items-center gap-1 text-xs text-destructive">
+                <AlertCircle className="w-3 h-3" />
+                {imeiError}
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">Harga Jual</label>
+              <Input type="number" value={sellingPrice} onChange={e => setSellingPrice(e.target.value)} placeholder="0" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">Harga Modal</label>
+              <Input type="number" value={costPrice} onChange={e => setCostPrice(e.target.value)} placeholder="0" />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Kondisi</label>
+            <Select value={conditionStatus} onValueChange={v => setConditionStatus(v as ConditionStatus)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="no_minus">No Minus</SelectItem>
+                <SelectItem value="minus">Minus</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {conditionStatus === "minus" && (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-muted-foreground">Tingkat Minus</label>
+                <Select value={minusSeverity || "none"} onValueChange={v => setMinusSeverity(v === "none" ? "" : v as MinusSeverity)}>
+                  <SelectTrigger><SelectValue placeholder="Pilih tingkat..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="minor">Minor</SelectItem>
+                    <SelectItem value="mayor">Mayor</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-muted-foreground">Deskripsi Minus</label>
+                <Textarea value={minusDescription} onChange={e => setMinusDescription(e.target.value)}
+                  placeholder="Jelaskan detail minus..." rows={2} />
+              </div>
+            </>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">Supplier</label>
+              <Input value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="Opsional" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">Batch Code</label>
+              <Input value={batchCode} onChange={e => setBatchCode(e.target.value)} placeholder="Opsional" />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Catatan</label>
+            <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Catatan internal..." rows={2} />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Batal</Button>
+          <Button onClick={handleSave} disabled={saving || !!imeiError}>
+            {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+            Simpan
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
